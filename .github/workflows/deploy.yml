@@ -1,0 +1,64 @@
+name: Sunrin 2023 Project Frontend Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  DOCKER_IMAGE: ghcr.io/past2l/sunrin2023_project_frontend
+  VERSION: ${{ github.sha }}
+  NAME: sunrin2023_project_frontend
+  HOST_PORT: 8081
+  CONTAINER_PORT: 3000
+
+jobs:
+  build:
+    name: Build
+    runs-on: [ self-hosted, oracle-cloud ]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up docker buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Cache docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ env.VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+      - name: Login to ghcr
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: past2l
+          password: ${{ secrets.GHCR_TOKEN }}
+      - name: Build and push
+        id: docker_build
+        uses: docker/build-push-action@v2
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          push: true
+          tags: ${{ env.DOCKER_IMAGE }}:latest
+  deploy:
+    needs: build
+    name: Deploy
+    runs-on: [ self-hosted, oracle-cloud ]
+    steps:
+      - name: Login to ghcr
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: past2l
+          password: ${{ secrets.GHCR_TOKEN }}
+      - name: Setting .env
+        run: |
+          echo "${{ secrets.ENV }}" >> .env
+          cat .env
+      - name: Docker run
+        run: |
+          docker stop ${{ env.NAME }} && docker rm ${{ env.NAME }} && docker rmi ${{ env.DOCKER_IMAGE }}:latest
+          docker run -d -p ${{ env.HOST_PORT }}:${{ env.CONTAINER_PORT }} --env-file=.env --name ${{ env.NAME }} --restart always ${{ env.DOCKER_IMAGE }}:latest
+      - name: Remove .env file
+        run: |
+          rm -rf .env
